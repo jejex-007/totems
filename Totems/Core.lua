@@ -393,6 +393,19 @@ function addon:ApplyMacrotext()
     self:ResetStep()
 end
 
+-- Non-secure cleanup after any twist reset (Lua path via Totem Recall,
+-- secure path via the UI button, or secure path via the Reset-twist
+-- keybind). The secure path has already mutated the protected attributes
+-- via `addon.RESET_TWIST_SNIPPET`; the HookScript on each reset button
+-- then calls this. The Lua path does its own attribute mutation and
+-- calls this at the end. Clears the WF refresh timer and refreshes the
+-- mini so the halo turns off immediately rather than waiting for the
+-- next matching cast.
+function addon:OnTwistReset()
+    self.lastWFCastTime = 0
+    if self.UI and self.UI.RefreshMini then self.UI:RefreshMini() end
+end
+
 -- Restore the twist state machine to the "full" phase (for the next pull).
 -- Out of combat only — in combat, the user clicks the secure Reset button
 -- in the mini chrome (its snippet mutates these same attributes safely).
@@ -403,7 +416,7 @@ function addon:ResetTwist()
     castBtn:SetAttribute("twist-mode",  "full")
     castBtn:SetAttribute("twist-count", 0)
     castBtn:SetAttribute("macrotext",   self:BuildTwistFullMacrotext(self:ActivePreset()))
-    self.lastWFCastTime = 0
+    self:OnTwistReset()
 end
 
 -- Number of non-empty slots in the active preset's sequence.
@@ -449,9 +462,14 @@ function addon:OnSpellCast(spellID)
 
     -- Track WF casts for the twist refresh warning. Any WF rank qualifies,
     -- so we compare against the known WF entry rather than a fixed ID.
+    -- A WF cast in twist mode ALSO changes the badge halo (full→short
+    -- transition happens in the secure preBody on press N+1 and fires WF);
+    -- refresh the mini UI here so the halo lights up immediately rather
+    -- than waiting for the next preset-slot cast (air totem on press N+2).
     local wf = self:WFEntry()
     if wf and wf.spellID == spellID then
         self.lastWFCastTime = GetTime()
+        if self.UI and self.UI.RefreshMini then self.UI:RefreshMini() end
     end
 
     local preset = self:ActivePreset()
@@ -538,10 +556,10 @@ local function createResetButton()
     r:RegisterForClicks("AnyDown")
     r:SetFrameRef("castBtn", castBtn)
     r:SetAttribute("_onclick", addon.RESET_TWIST_SNIPPET)
-    -- Clear the WF warning counter too (insecure post-click hook; runs after
-    -- the secure snippet). Keeps the red-border warning in sync with a
-    -- freshly-reset twist cycle when the Reset-twist keybind is used.
-    r:HookScript("OnClick", function() addon.lastWFCastTime = 0 end)
+    -- Non-secure cleanup after the secure snippet runs: clears the WF
+    -- refresh timer and refreshes the mini so the badge halo / WF warning
+    -- update immediately instead of waiting for the next matching cast.
+    r:HookScript("OnClick", function() addon:OnTwistReset() end)
     return r
 end
 

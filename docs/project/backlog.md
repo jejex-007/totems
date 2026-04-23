@@ -3,10 +3,14 @@
 Effort scale (real hours, KySeEtH + Claude pair):
 S (< 1h) · M (1–2h) · L (3–5h) · XL (6–8h)
 
-## Milestone 0.1 — MVP
+## Milestone 0.1 — MVP (tagged `v0.1.0` on 2026-04-23)
 
 Goal: replace the hand-edited castsequence macro with a working
 addon and a minimal config UI. Must work in-game on a shaman.
+Scope grew beyond "minimal" during iteration (twist state machine,
+floating WF indicator, totem timers, engineering standards, public
+release). All shipped under the `v0.1.0` tag — see the changelog
+entries dated 2026-04-18 through 2026-04-23 for detail.
 
 ### Wave 1 — foundation (done in this session)
 - [x] Project scaffolding (TOC, Bindings, file layout) — S
@@ -61,7 +65,7 @@ addon and a minimal config UI. Must work in-game on a shaman.
 - [x] Confirmation popup before deleting a preset — S
 - [x] Shift-clic on a mini slot links just that totem to chat — S
 - [x] Spec-first refactor — phase 1: `docs/user-guide/business-rules.md`
-      as KySeEtHitative spec (17 sections, BR IDs); `Locales.lua`
+      as authoritative spec (17 sections, BR IDs); `Locales.lua`
       with en/fr/de tables, `addon:PickLocale()`, `addon.L` with
       English fallback + `[KEY]` marker; every hardcoded French
       string in Core.lua and UI.lua routed through `addon.L`;
@@ -90,9 +94,85 @@ addon and a minimal config UI. Must work in-game on a shaman.
       totems pop in/out of the picker without `/reload` — S
 - [ ] Re-audit DB on other shamans (different levels/accounts may
       still surface bad rank IDs) — S
-- [ ] Apply the same custom preset selector to the main config (its
-      current UIDropDownMenuTemplate has the same overflow class of
-      bug, just masked by the larger frame) — S
+- [x] Apply the same custom preset selector to the main config —
+      S (shipped 2026-04-20 as part of the Details-inspired visual
+      pass; `buildPresetDropdown` + `mainPresetMenu` using
+      `makeFlatDropdown`).
+
+### Wave 3 — twist state machine + secure cast rebuild
+- [x] Phase A: diagnose silent cast failure on TBC Anniversary
+      2.5.5; root cause `RegisterForClicks("AnyUp")` dropping the
+      secure dispatch. Fix: `"AnyDown"` alone. Strip `Core.lua` to
+      minimal hardcoded `/castsequence` to validate the plumbing
+      before rebuilding dynamic logic. — M
+- [x] Phase B: dynamic `/castsequence` from the active preset
+      (`BuildMacrotext`). — S
+- [x] Phase C: full twist state machine via
+      `SecureHandlerWrapScript` preBody (postBody is silently
+      dropped on `SecureActionButtonTemplate` clicks in 2.5.5 —
+      verified with a heartbeat). — M
+- [x] Second keybind "Reset twist" per BR-BIND-1. — S
+
+### Wave 4 — WF refresh indicator + mini-panel polish
+- [x] Windfury refresh warning: pulsing overlay when >=10 s since
+      last WF cast in twist mode; initial red-border implementation
+      superseded by the floating WF icon. — S
+- [x] Floating WF icon (`TotemsWFIconFrame`): positionable,
+      persisted in `TotemsDB.ui.wfIconPos`; visible on warning
+      (pulsing) OR while the main config is open with a twist
+      preset (solid, for repositioning). Red border removed. — S
+- [x] Alphabetical preset ordering in both dropdowns. — S
+- [x] Default element icons (generic shaman-school spell icons,
+      NOT totem icons) faded on empty mini slots. — S
+- [x] Active-totem countdown on each mini slot driven by
+      `GetTotemInfo`, matched to preset slot by icon (locale-
+      robust). — S
+- [x] Class-guard fix on non-shaman alts: `DisableAddOn` → 
+      `C_AddOns.DisableAddOn` fallback; clearer
+      `CHAT_DISABLED_CLASS` message in en/fr/de. — S
+- [x] Twist badge on the mini panel (BR-TWIST-UI-4): WF icon
+      anchored left of slot 1 with a blue halo during the short
+      phase, countdown overlay showing seconds before the next
+      required WF cast. Halo lights up on the last full-phase
+      press (UI anticipation — secure swap threshold unchanged).
+      `addon:OnTwistReset()` helper centralises the post-reset
+      cleanup so the halo drops immediately on any of the three
+      reset paths. — S
+
+### Wave 5 — public release + engineering standards + refactor
+- [x] Public git repo `jejex-007/totems` with README + MIT LICENSE
+      + `.gitignore`; per-repo git identity to keep the real name
+      out of the public history; tag `v0.1.0`. — M
+- [x] `engineering-standards.md` (NFR-*): second source of truth
+      alongside `business-rules.md`. 12 categories with stable
+      IDs and MUST/SHOULD/MAY status; Section 0 pins rules to the
+      current client build with re-verification triggers; CLAUDE.md
+      Definition of Done updated. — M
+- [x] First refactor wave driven by the NFRs: position helpers
+      consolidation, chrome hover helper extraction, defensive
+      re-inits removal, 10+ magic numbers → named constants, full
+      locale key coverage in tests, twistResetBtn guard removal
+      (loud-fail). Plus dropdown toggle fix + click-outside-to-close
+      via fullscreen click-catcher. — M
+
+### Wave 6 — deferred P3 refactor items
+All micro-wins, not worth a dedicated pass; pick up opportunistically
+when adjacent code is touched for another reason.
+- [ ] `FindTotem` memoization per preset (currently linear scan
+      over `addon.known[element]` on each call; <10 entries per
+      element, negligible at current scale). — S
+- [ ] Unify `makeFlatButton` + `makeFlatDropdown` helpers (differ
+      only in arrow presence and click behavior). — S
+- [ ] Cache the sorted preset-name list in `dropdownInit` instead
+      of rebuilding on each menu open; invalidate on preset
+      add / rename / delete. — S
+- [ ] Throttle the WF icon pulse `math.sin` update to every 2–3
+      frames instead of every frame (imperceptible visual change,
+      saves tiny amount of per-frame CPU). — S
+- [ ] Full comment audit (NFR-MAINT-2): remove comments that only
+      paraphrase the code; keep only the ones that document a
+      non-obvious constraint or workaround. Do naturally as part
+      of feature work rather than a dedicated pass. — S
 
 ## Milestone 0.2 — nice-to-haves
 

@@ -3,6 +3,62 @@
 Entries are newest-first. One entry per commit/push once git is
 introduced. Format: date + scope + one-paragraph summary.
 
+## 2026-04-23 — twist badge + phase-aware halo + WF countdown
+
+Scope: a dedicated indicator on the mini panel for twist mode,
+replacing the implicit "WF is cast between each totem" mental
+model with a visible badge. The per-slot yellow highlight stays
+as the full-phase signal; the blue halo on the badge becomes the
+short-phase signal (mutually exclusive). Implements
+`BR-TWIST-UI-4`.
+
+- `UI.lua` — new `UI.twistBadge` on the mini panel, anchored to
+  the LEFT of slot 1 (y-offset -8 to clear the gear chrome icon).
+  24x24 WF icon with a 3 px blue halo behind it (shown only in
+  the twist short phase), an ARIALN 14pt THICKOUTLINE white
+  countdown overlay centered on the icon, and a tooltip
+  ("Twist active" + hint).
+- Phase detection reads three attributes off the secure cast
+  button: `twist-mode`, `twist-count`, `twist-full-len`. The UI
+  treats `mode == "short"` OR (`mode == "full"` AND `count >=
+  fullLen`) as the "short phase" for display purposes — the halo
+  therefore lights up on the LAST cast of the full phase (press
+  N) rather than waiting for the first cast of the short phase
+  (press N+1). The secure macrotext swap threshold
+  (`count > fullLen`) is unchanged; this is a pure UI
+  anticipation.
+- Countdown text: `WF_REFRESH_THRESHOLD - (GetTime() -
+  lastWFCastTime)`, seconds. Hidden when twist isn't applicable,
+  the player hasn't cast WF yet, or the threshold has elapsed
+  (the floating WF icon pulse takes over past zero).
+- `Core.lua` — `OnSpellCast` now calls `UI:RefreshMini()` right
+  after the WF-cast timestamp update, so the badge halo / timer
+  refresh as soon as WF itself fires (the earlier early-return
+  on "cast doesn't match preset slot" skipped the mini refresh
+  for WF casts).
+- `Core.lua` — new `addon:OnTwistReset()` helper centralises the
+  non-secure cleanup after any twist reset: clears
+  `lastWFCastTime` AND calls `UI:RefreshMini`. Called from (1)
+  `ResetTwist` (Lua path, out-of-combat via Totem Recall),
+  (2) the keybind reset button's HookScript, (3) the mini reset
+  button's HookScript. Before this, the halo stayed visible
+  until the next matching cast instead of clearing immediately
+  on reset.
+- `Locales.lua` — new keys `TT_TWIST_BADGE` / `TT_TWIST_BADGE_HINT`
+  in en/fr/de (and added to `REQUIRED_LOCALE_KEYS` in Tests.lua).
+- `UI.lua` — layout constant `TWIST_HALO_R/G/B` at the top of the
+  file (shaman-Elemental blue, matches `SPEC_COLORS[1]`).
+- `docs/user-guide/business-rules.md` — new `BR-TWIST-UI-4`
+  describing the three badge states and the mutual exclusion with
+  the per-slot highlight.
+
+Validated in-game: badge shows with WF icon when twist applicable;
+countdown decrements on cast; halo lights up on the last full-
+phase press (press 3 with 2 active totems, press 5 with 4 active
+totems); halo clears immediately on any of the three reset paths.
+93 tests passing (count unchanged — the new locale keys fold into
+the existing per-language coverage assertion).
+
 ## 2026-04-23 — refactor wave (post-NFR creation): 8 items against the new spec
 
 Scope: first refactor pass driven by `engineering-standards.md`. An

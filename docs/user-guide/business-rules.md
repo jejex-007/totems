@@ -216,6 +216,21 @@ Wrath of Air, etc.).
   inapplicable (see BR-TWIST-2).
 - **BR-TWIST-UI-2** — The mini panel only shows the "Reset twist"
   button when twisting is applicable for the active preset.
+- **BR-TWIST-UI-4** — When twisting is applicable on the active
+  preset, the mini panel shows a small Windfury-icon badge to the
+  LEFT of slot 1 (the "twist badge"). It has three visual states:
+  (a) no halo + countdown text = full phase, countdown shows
+  seconds remaining before the next required WF cast;
+  (b) blue halo around the icon = short phase (WF ↔ air loop);
+  the blue lights up as soon as the LAST full-phase cast lands
+  (count reaches `twist-full-len`), not one press later;
+  (c) hidden = twist not applicable on the active preset.
+  The badge and the per-slot next-cast highlight are mutually
+  exclusive: the yellow slot-highlight shows only in full phase,
+  the blue badge-halo shows only in short phase. All three reset
+  triggers (mini button, Totem Recall, Reset-twist keybind) drop
+  the halo immediately via a shared `OnTwistReset` post-click
+  path.
 - **BR-TWIST-UI-3** — When twisting is applicable AND the player
   has cast Windfury at least once AND 10 or more seconds have
   elapsed since that last Windfury cast, a pulsing Windfury icon

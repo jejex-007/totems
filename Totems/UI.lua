@@ -30,6 +30,13 @@ local WF_PULSE_AMPLITUDE = 0.5
 local EMPTY_SLOT_ALPHA = 0.35    -- faded element-default icon when no totem selected
 local SLOT_DRAG_ALPHA  = 0.4     -- active slot while the user is dragging to reorder
 
+-- Twist-badge halo color (RGB). Shown around the WF icon when the twist
+-- state machine enters the "short" phase (WF ↔ air loop). Matches the
+-- Elemental shaman accent (SPEC_COLORS[1]) so it reads as "twist mode
+-- engaged" at a glance without competing with the per-slot yellow
+-- highlight used in the "full" phase.
+local TWIST_HALO_R, TWIST_HALO_G, TWIST_HALO_B = 0.30, 0.60, 1.00
+
 local mainFrame
 local columnFrames  = {}  -- slot index 1..4 -> column frame
 local presetDropdown
@@ -893,10 +900,10 @@ function UI:InitMini()
     -- regression immediately rather than as a silent broken reset button.
     twistResetBtn:SetFrameRef("castBtn", addon.castBtn)
     twistResetBtn:SetAttribute("_onclick", addon.RESET_TWIST_SNIPPET)
-    -- Clear the WF warning counter too (insecure post-click hook, runs after
-    -- the secure attribute mutation). Keeps the red border in sync with the
-    -- freshly-reset twist cycle.
-    twistResetBtn:HookScript("OnClick", function() addon.lastWFCastTime = 0 end)
+    -- Non-secure cleanup after the secure snippet runs: clears the WF
+    -- refresh timer and refreshes the mini so the badge halo / WF warning
+    -- update immediately instead of waiting for the next matching cast.
+    twistResetBtn:HookScript("OnClick", function() addon:OnTwistReset() end)
     twistResetBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText(addon.L.TT_TWIST_RESET, 1, 1, 1)
@@ -1007,6 +1014,25 @@ function UI:InitMini()
         elseif wfIconFrame:IsShown() then
             wfIconFrame:Hide()
         end
+
+        -- Twist badge countdown: seconds remaining before the next required
+        -- WF cast. Hidden when twist isn't applicable, the player hasn't
+        -- cast WF yet this session, or the refresh threshold has already
+        -- elapsed (the floating WF icon warning takes over past zero).
+        if UI.twistBadge and UI.twistBadge:IsShown() then
+            if canTwist and (addon.lastWFCastTime or 0) > 0 then
+                local remaining = addon.WF_REFRESH_THRESHOLD
+                    - (GetTime() - addon.lastWFCastTime)
+                if remaining > 0 then
+                    UI.twistBadge.timer:SetText(tostring(math.ceil(remaining)))
+                    UI.twistBadge.timer:Show()
+                else
+                    UI.twistBadge.timer:Hide()
+                end
+            else
+                UI.twistBadge.timer:Hide()
+            end
+        end
     end)
 
     UI.miniSlotMenuFrame = CreateFrame("Frame", "TotemsMiniSlotMenu", UIParent, "UIDropDownMenuTemplate")
@@ -1079,6 +1105,50 @@ function UI:InitMini()
         miniSlots[i] = slot
     end
 
+    -- Twist mode badge: small WF icon anchored to the LEFT of slot 1, shown
+    -- only when the active preset has twist applicable. Signals at a glance
+    -- that Windfury is being injected between the sequence casts (WF never
+    -- appears in the 4 visible slots in twist mode).
+    local twistBadge = CreateFrame("Frame", nil, miniFrame)
+    twistBadge:SetSize(24, 24)
+    -- Anchored slightly below slot 1's vertical center so the top of the
+    -- badge clears the gear chrome icon on the mini's top-left (14 px
+    -- tall, anchored at y=-3). 8 px down keeps the badge inside the row.
+    twistBadge:SetPoint("RIGHT", miniSlots[1], "LEFT", -4, -8)
+    twistBadge:EnableMouse(true)
+
+    -- Blue halo behind the WF icon, shown only during the "short" phase
+    -- of the twist state machine (WF ↔ air loop). Positioned 3 px outside
+    -- the icon rect on every side so it reads as a glow around the icon.
+    twistBadge.halo = twistBadge:CreateTexture(nil, "BACKGROUND")
+    twistBadge.halo:SetPoint("TOPLEFT",     twistBadge, "TOPLEFT",     -3,  3)
+    twistBadge.halo:SetPoint("BOTTOMRIGHT", twistBadge, "BOTTOMRIGHT",  3, -3)
+    twistBadge.halo:SetColorTexture(TWIST_HALO_R, TWIST_HALO_G, TWIST_HALO_B, 1)
+    twistBadge.halo:Hide()
+
+    twistBadge.icon = twistBadge:CreateTexture(nil, "ARTWORK")
+    twistBadge.icon:SetAllPoints()
+
+    -- Countdown text: seconds remaining before the next required WF cast
+    -- (`WF_REFRESH_THRESHOLD - elapsed since last WF`). Refreshed in the
+    -- mini OnUpdate (throttled). Centered on the badge, white outlined so
+    -- it reads over the WF icon texture.
+    twistBadge.timer = twistBadge:CreateFontString(nil, "OVERLAY")
+    twistBadge.timer:SetFont("Fonts\\ARIALN.TTF", 14, "THICKOUTLINE")
+    twistBadge.timer:SetPoint("CENTER", twistBadge, "CENTER", 0, 0)
+    twistBadge.timer:SetTextColor(1, 1, 1)
+    twistBadge.timer:Hide()
+
+    twistBadge:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(addon.L.TT_TWIST_BADGE, 1, 1, 1)
+        GameTooltip:AddLine(addon.L.TT_TWIST_BADGE_HINT, 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    twistBadge:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    twistBadge:Hide()
+    UI.twistBadge = twistBadge
+
     UI.miniPresetMenu = CreateFrame("Frame", "TotemsMiniPresetMenu", UIParent, "UIDropDownMenuTemplate")
     miniDropdown = makeFlatDropdown(miniFrame, MINI_W - 110, 22, function(self)
         UIDropDownMenu_Initialize(UI.miniPresetMenu, dropdownInit, "MENU")
@@ -1100,6 +1170,26 @@ function UI:RefreshMini()
     if not miniFrame then return end
     local preset = addon:ActivePreset()
     local nextSlot = addon:NextCastSlot()
+
+    -- Phase of the twist state machine (source of truth is the secure cast
+    -- button's `twist-mode` attribute; non-secure Lua can read it).
+    -- "full" (or nil, non-twist) → slot highlight visible; badge halo off.
+    -- "short"                    → slot highlight hidden; badge halo on.
+    --
+    -- We also light the halo on the very last press of the full phase
+    -- (count == fullLen) even though `twist-mode` is still "full" at that
+    -- moment — the secure swap happens on press N+1. Lighting it a press
+    -- early signals "twist loop is engaged" to the player right after the
+    -- final full-phase cast lands, rather than one press later.
+    local twistMode = addon.castBtn and addon.castBtn:GetAttribute("twist-mode")
+    local twistCount, twistFullLen = 0, 0
+    if addon.castBtn then
+        twistCount   = tonumber(addon.castBtn:GetAttribute("twist-count")) or 0
+        twistFullLen = tonumber(addon.castBtn:GetAttribute("twist-full-len")) or 0
+    end
+    local inShortPhase = (twistMode == "short")
+        or (twistMode == "full" and twistFullLen > 0 and twistCount >= twistFullLen)
+
     for i = 1, 4 do
         local element = preset.order[i]
         local entry   = addon:FindTotem(element, preset.selections[element])
@@ -1115,10 +1205,25 @@ function UI:RefreshMini()
             slot.icon:SetAlpha(EMPTY_SLOT_ALPHA)
         end
         slot.icon:Show()
-        if i == nextSlot then
+        if i == nextSlot and not inShortPhase then
             slot.nextHL:Show()
         else
             slot.nextHL:Hide()
+        end
+    end
+
+    if UI.twistBadge then
+        if addon:TwistApplicable(preset) then
+            local wf = addon:WFEntry()
+            if wf then UI.twistBadge.icon:SetTexture(wf.texture) end
+            UI.twistBadge:Show()
+            if inShortPhase then
+                UI.twistBadge.halo:Show()
+            else
+                UI.twistBadge.halo:Hide()
+            end
+        else
+            UI.twistBadge:Hide()
         end
     end
     if miniDropdown then

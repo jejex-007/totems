@@ -34,6 +34,8 @@ addon.LOCALES.en = {
     TT_TWIST_RESET_HINT = "Restarts: WF + full sequence.",
     TT_TWIST_INFO       = "On cast key: WF + full sequence.\n"
                        .. "Then alternates WF / air totem until reset.",
+    TT_TWIST_BADGE      = "Twist active",
+    TT_TWIST_BADGE_HINT = "Windfury is cast between each totem.",
     TT_SLOT_CLICK       = "Click: change totem",
     TT_SLOT_SHIFT       = "Shift-click: share in chat",
     TT_SLOT_DRAG        = "Drag: reorder the sequence",
@@ -91,6 +93,8 @@ addon.LOCALES.fr = {
     TT_TWIST_RESET_HINT = "Redémarre : WF + séquence complète.",
     TT_TWIST_INFO       = "À la touche cast : WF + séquence complète.\n"
                        .. "Puis alterne WF / totem d'air jusqu'au reset.",
+    TT_TWIST_BADGE      = "Twist actif",
+    TT_TWIST_BADGE_HINT = "Windfury est castée entre chaque totem.",
     TT_SLOT_CLICK       = "Clic : changer le totem",
     TT_SLOT_SHIFT       = "Shift-clic : partager dans le chat",
     TT_SLOT_DRAG        = "Glisser : réordonner la séquence",
@@ -149,6 +153,8 @@ addon.LOCALES.de = {
     TT_TWIST_RESET_HINT = "Startet neu: WF + volle Sequenz.",
     TT_TWIST_INFO       = "Cast-Taste: WF + volle Sequenz.\n"
                        .. "Dann wechselt WF / Luft-Totem bis zum Reset.",
+    TT_TWIST_BADGE      = "Twist aktiv",
+    TT_TWIST_BADGE_HINT = "Windzorn wird zwischen jedem Totem gewirkt.",
     TT_SLOT_CLICK       = "Klick: Totem ändern",
     TT_SLOT_SHIFT       = "Shift-Klick: im Chat teilen",
     TT_SLOT_DRAG        = "Ziehen: Sequenz neu ordnen",
