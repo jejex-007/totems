@@ -1,0 +1,11 @@
+<Bindings>
+    <Binding name="TOTEMS_CAST" category="BINDING_HEADER_TOTEMS">
+        -- The keystroke is re-routed to TotemsCastButton via
+        -- SetOverrideBindingClick in Core.lua. This body is a no-op safety net
+        -- in case the override hasn't been applied yet (e.g. mid-combat reload).
+    </Binding>
+    <Binding name="TOTEMS_RESET_TWIST" category="BINDING_HEADER_TOTEMS">
+        -- Re-routed to TotemsResetTwistButton via SetOverrideBindingClick.
+        -- This body is a no-op safety net.
+    </Binding>
+</Bindings>
