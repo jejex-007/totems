@@ -79,6 +79,35 @@ local function assertEq(name, actual, expected)
     end
 end
 
+-- Canonical list of every locale key the UI / Core / bindings can read
+-- via `addon.L`. Consumed by the locale-coverage test below, which asserts
+-- that EVERY language table directly defines EVERY key (not just falling
+-- back to English). Add new keys here when introducing user-facing strings.
+local REQUIRED_LOCALE_KEYS = {
+    "ELEMENT_AIR", "ELEMENT_FIRE", "ELEMENT_EARTH", "ELEMENT_WATER",
+    "LABEL_RESET_SEC", "LABEL_PRESET", "LABEL_HIDDEN_BUTTON",
+    "LABEL_TWIST_CHECK",
+    "TT_LOCK", "TT_UNLOCK", "TT_CONFIGURE", "TT_SHARE", "TT_SHARE_HINT",
+    "TT_TWIST_RESET", "TT_TWIST_RESET_HINT", "TT_TWIST_INFO",
+    "TT_SLOT_CLICK", "TT_SLOT_SHIFT", "TT_SLOT_DRAG",
+    "TT_SLOT_RIGHTCLICK", "TT_HIDE_SHIFTCLICK",
+    "MENU_NONE", "MENU_NO_HIDDEN", "MENU_NEW_PRESET",
+    "MENU_RENAME_PRESET", "MENU_DELETE_PRESET",
+    "POPUP_NEW_TITLE", "POPUP_RENAME_TITLE", "POPUP_DELETE_TITLE",
+    "POPUP_DELETE_OK", "POPUP_CANCEL", "POPUP_OK",
+    "CHAT_LOADED", "CHAT_DISABLED_CLASS", "CHAT_NO_COMBAT",
+    "CHAT_DEBUG_SCAN", "CHAT_DEBUG_UNMAPPED", "CHAT_DEBUG_DONE",
+    "BINDING_HEADER", "BINDING_CAST", "BINDING_RESET_TWIST",
+}
+
+local function missingKeysIn(table_, required)
+    local missing = {}
+    for _, k in ipairs(required) do
+        if table_[k] == nil then table.insert(missing, k) end
+    end
+    return missing
+end
+
 local cases = {
     { "SequenceLength with 4 selections", function()
         assertEq("len == 4", addon:SequenceLength(), 4)
@@ -376,41 +405,17 @@ local cases = {
         local v = addon.L.TOTALLY_MADE_UP_KEY
         assertEq("bracket marker", v, "[TOTALLY_MADE_UP_KEY]")
     end },
-    { "addon.L has every required key in English", function()
-        local required = {
-            "ELEMENT_AIR", "ELEMENT_FIRE", "ELEMENT_EARTH", "ELEMENT_WATER",
-            "LABEL_RESET_SEC", "LABEL_PRESET", "LABEL_HIDDEN_BUTTON",
-            "LABEL_TWIST_CHECK",
-            "TT_LOCK", "TT_UNLOCK", "TT_CONFIGURE", "TT_SHARE", "TT_SHARE_HINT",
-            "TT_TWIST_RESET", "TT_TWIST_RESET_HINT", "TT_TWIST_INFO",
-            "TT_SLOT_CLICK", "TT_SLOT_SHIFT", "TT_SLOT_DRAG",
-            "TT_SLOT_RIGHTCLICK", "TT_HIDE_SHIFTCLICK",
-            "MENU_NONE", "MENU_NO_HIDDEN", "MENU_NEW_PRESET",
-            "MENU_RENAME_PRESET", "MENU_DELETE_PRESET",
-            "POPUP_NEW_TITLE", "POPUP_RENAME_TITLE", "POPUP_DELETE_TITLE",
-            "POPUP_DELETE_OK", "POPUP_CANCEL", "POPUP_OK",
-            "CHAT_LOADED", "CHAT_DISABLED_CLASS", "CHAT_NO_COMBAT",
-            "CHAT_DEBUG_SCAN", "CHAT_DEBUG_UNMAPPED", "CHAT_DEBUG_DONE",
-            "BINDING_HEADER", "BINDING_CAST", "BINDING_RESET_TWIST",
-        }
-        local en = addon.LOCALES.en
-        local missing = 0
-        for _, k in ipairs(required) do
-            if en[k] == nil then missing = missing + 1 end
-        end
-        assertEq("no missing keys in en", missing, 0)
+    { "English table defines every required key", function()
+        local missing = missingKeysIn(addon.LOCALES.en, REQUIRED_LOCALE_KEYS)
+        assertEq("en missing: " .. table.concat(missing, ","), #missing, 0)
     end },
-    { "French and German tables never surface '[KEY]' fallback", function()
-        local required = {
-            "ELEMENT_AIR", "LABEL_PRESET", "TT_LOCK", "MENU_NONE",
-            "POPUP_DELETE_OK", "CHAT_LOADED", "BINDING_CAST",
-        }
-        for _, tag in ipairs({ "fr", "de" }) do
-            local t = addon:PickLocale(tag == "fr" and "frFR" or "deDE")
-            for _, k in ipairs(required) do
-                assertEq(tag .. " has " .. k, type(t[k]) == "string", true)
-            end
-        end
+    { "French table defines every required key (no silent EN fallback)", function()
+        local missing = missingKeysIn(addon.LOCALES.fr, REQUIRED_LOCALE_KEYS)
+        assertEq("fr missing: " .. table.concat(missing, ","), #missing, 0)
+    end },
+    { "German table defines every required key (no silent EN fallback)", function()
+        local missing = missingKeysIn(addon.LOCALES.de, REQUIRED_LOCALE_KEYS)
+        assertEq("de missing: " .. table.concat(missing, ","), #missing, 0)
     end },
 }
 

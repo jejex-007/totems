@@ -14,6 +14,22 @@ local MAX_ROWS    = 7
 local HEADER_H    = 22
 local FOOTER_H    = 84  -- bottom area: twist checkbox + preset dropdown + reset timer
 
+-- Throttle for mini/main `OnUpdate` handlers — chrome hover transitions,
+-- WF icon show/hide decision, totem timer refresh. 0.1 s is imperceptible
+-- to the eye and keeps the hot path cheap.
+local UPDATE_THROTTLE = 0.1
+
+-- Windfury refresh pulse (floating WF icon). `HZ` drives `math.sin(t*HZ)`
+-- so at 5 Hz the alpha completes ~5 min/max cycles per second.
+-- Alpha = BASE + AMPLITUDE * |sin| → ranges [BASE, BASE+AMPLITUDE] = [0.5, 1.0].
+local WF_PULSE_HZ        = 5
+local WF_PULSE_BASE      = 0.5
+local WF_PULSE_AMPLITUDE = 0.5
+
+-- Alpha values used on mini-panel slots.
+local EMPTY_SLOT_ALPHA = 0.35    -- faded element-default icon when no totem selected
+local SLOT_DRAG_ALPHA  = 0.4     -- active slot while the user is dragging to reorder
+
 local mainFrame
 local columnFrames  = {}  -- slot index 1..4 -> column frame
 local presetDropdown
@@ -27,20 +43,45 @@ local miniDropdown
 -- Main frame
 -------------------------------------------------------------------------------
 
-local function savePosition(f)
+-- Shared per-frame persisted position helpers. Call sites:
+--   * main config  → savePos(f, "pos")         / applyPos(f, "pos",       "CENTER", 0, 0)
+--   * mini panel   → savePos(f, "miniPos")     / applyPos(f, "miniPos",   "CENTER", 0, -200)
+--   * WF icon      → savePos(f, "wfIconPos")   / applyPos(f, "wfIconPos", "CENTER", 0,  100)
+-- All positions live under `TotemsDB.ui.<dbKey>` as { point, relPoint, x, y }.
+local function savePos(f, dbKey)
     local point, _, relPoint, x, y = f:GetPoint(1)
     if not point then return end
-    TotemsDB.ui = TotemsDB.ui or {}
-    TotemsDB.ui.pos = { point = point, relPoint = relPoint, x = x, y = y }
+    TotemsDB.ui[dbKey] = { point = point, relPoint = relPoint, x = x, y = y }
 end
 
-local function applyPosition(f)
-    local pos = TotemsDB.ui and TotemsDB.ui.pos
+local function applyPos(f, dbKey, defPoint, defX, defY)
+    local pos = TotemsDB.ui and TotemsDB.ui[dbKey]
     f:ClearAllPoints()
     if pos and pos.point then
         f:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
     else
-        f:SetPoint("CENTER")
+        f:SetPoint(defPoint, UIParent, defPoint, defX or 0, defY or 0)
+    end
+end
+
+-- Hover-reveal state transition for a frame's chrome (close / lock / gear
+-- buttons that start invisible and fade in while the mouse is over the
+-- frame or any chrome child). Checking the parent alone flickers when the
+-- cursor enters a child that extends past the parent rect (e.g. a close
+-- button anchored at +1,+1), so we test parent + every chrome element.
+-- Caller is responsible for throttling and storing the per-frame "hovered"
+-- state on `frame.chromeHovered`.
+local function updateChromeHover(frame, chrome)
+    local over = frame:IsMouseOver()
+    if not over then
+        for _, c in ipairs(chrome) do
+            if c:IsMouseOver() then over = true; break end
+        end
+    end
+    if over ~= frame.chromeHovered then
+        frame.chromeHovered = over
+        local a = over and 1 or 0
+        for _, c in ipairs(chrome) do c:SetAlpha(a) end
     end
 end
 
@@ -68,9 +109,41 @@ local function makeFlatButton(parent, w, h, text)
     return b
 end
 
+-- Click-catcher for dropdown menus. TBC Classic's "MENU" dropdowns don't
+-- auto-close on outside clicks — that's retail behavior. We simulate it
+-- with an invisible fullscreen frame at strata HIGH: above the main panel
+-- (MEDIUM) and its children, below Blizzard's `DropDownList1`
+-- (FULLSCREEN_DIALOG). When a Totems dropdown opens the catcher is shown;
+-- clicking anywhere on it closes the dropdown, and `DropDownList1`'s own
+-- OnHide drops the catcher on any other close path (item select, ESC, or
+-- re-click of the owner button).
+local dropdownCatcher
+
+local function openDropdown(level, value, menuFrame, anchor, x, y)
+    ToggleDropDownMenu(level, value, menuFrame, anchor, x, y)
+    if not dropdownCatcher then
+        dropdownCatcher = CreateFrame("Frame", nil, UIParent)
+        dropdownCatcher:SetAllPoints(UIParent)
+        dropdownCatcher:SetFrameStrata("HIGH")
+        dropdownCatcher:EnableMouse(true)
+        dropdownCatcher:SetScript("OnMouseDown", function(self)
+            CloseDropDownMenus()
+            self:Hide()
+        end)
+        DropDownList1:HookScript("OnHide", function()
+            if dropdownCatcher then dropdownCatcher:Hide() end
+        end)
+    end
+    if DropDownList1:IsShown() then
+        dropdownCatcher:Show()
+    else
+        dropdownCatcher:Hide()
+    end
+end
+
 -- Flat dropdown selector: dark button with centered text and a golden
 -- expand-arrow on the right. Click the button to trigger `onClick` (which
--- should call `ToggleDropDownMenu` with a menu host).
+-- should call `openDropdown` with a menu host).
 local function makeFlatDropdown(parent, w, h, onClick)
     local b = CreateFrame("Button", nil, parent)
     b:SetSize(w, h)
@@ -130,7 +203,7 @@ local function createMainFrame()
     end)
     f:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
-        savePosition(self)
+        savePos(self, "pos")
     end)
     f:SetClampedToScreen(true)
 
@@ -139,7 +212,7 @@ local function createMainFrame()
     f.title:SetPoint("TOP", f, "TOP", 0, -4)
     f.title:SetText("Totems")
 
-    applyPosition(f)
+    applyPos(f, "pos", "CENTER", 0, 0)
     f:Hide()
 
     -- ESC closes the frame via Blizzard's UIParent close-on-escape list.
@@ -258,7 +331,6 @@ end
 -------------------------------------------------------------------------------
 
 function UI:SetLocked(v)
-    TotemsDB.ui = TotemsDB.ui or {}
     TotemsDB.ui.locked = v and true or false
     if UI.updateMainLockIcon then UI.updateMainLockIcon() end
     if UI.updateMiniLockIcon then UI.updateMiniLockIcon() end
@@ -293,6 +365,15 @@ function UI:ToggleHidden(element, key)
 end
 
 function UI:ShowHiddenMenu(anchor)
+    -- Toggle: if our menu is already open, close it instead of reopening.
+    -- Re-calling UIDropDownMenu_Initialize resets the dropdown state, which
+    -- would make ToggleDropDownMenu unconditionally open (never close).
+    if DropDownList1 and DropDownList1:IsShown()
+        and UIDROPDOWNMENU_OPEN_MENU == UI.hiddenMenuFrame then
+        CloseDropDownMenus()
+        return
+    end
+
     local menuList = {}
     for _, element in ipairs(addon.ELEMENTS) do
         local set = TotemsDB.ui.hidden and TotemsDB.ui.hidden[element]
@@ -331,7 +412,7 @@ function UI:ShowHiddenMenu(anchor)
         end
     end, "MENU")
 
-    ToggleDropDownMenu(1, nil, UI.hiddenMenuFrame, anchor, 0, 0)
+    openDropdown(1, nil, UI.hiddenMenuFrame, anchor, 0, 0)
 end
 
 function UI:Swap(i, j)
@@ -396,7 +477,7 @@ local function buildPresetDropdown(parent)
         or CreateFrame("Frame", "TotemsMainPresetMenu", UIParent, "UIDropDownMenuTemplate")
     local dd = makeFlatDropdown(parent, 140, 22, function(self)
         UIDropDownMenu_Initialize(mainPresetMenu, dropdownInit, "MENU")
-        ToggleDropDownMenu(1, nil, mainPresetMenu, self, 0, 0)
+        openDropdown(1, nil, mainPresetMenu, self, 0, 0)
     end)
     return dd
 end
@@ -544,19 +625,9 @@ function UI:Init()
 
     mainFrame:SetScript("OnUpdate", function(self, elapsed)
         self.chromeAccum = (self.chromeAccum or 0) + elapsed
-        if self.chromeAccum < 0.1 then return end
+        if self.chromeAccum < UPDATE_THROTTLE then return end
         self.chromeAccum = 0
-        local over = self:IsMouseOver()
-        if not over then
-            for _, c in ipairs(chrome) do
-                if c:IsMouseOver() then over = true; break end
-            end
-        end
-        if over ~= self.chromeHovered then
-            self.chromeHovered = over
-            local a = over and 1 or 0
-            for _, c in ipairs(chrome) do c:SetAlpha(a) end
-        end
+        updateChromeHover(self, chrome)
     end)
 
     for i = 1, 4 do
@@ -581,7 +652,7 @@ function UI:Init()
     resetBox.bg:SetAllPoints()
     resetBox.bg:SetColorTexture(0, 0, 0, 0.5)
     local function commitReset(self)
-        local v = tonumber(self:GetText()) or 10
+        local v = tonumber(self:GetText()) or addon.DEFAULT_RESET_TIMER
         if v < 1 then v = 1 end
         addon:ActivePreset().resetTimer = v
         self:SetText(tostring(v))
@@ -641,7 +712,7 @@ function UI:Refresh()
         if presetDropdown then
             presetDropdown.text:SetText(TotemsDB.active)
         end
-        if resetBox then resetBox:SetText(tostring(preset.resetTimer or 10)) end
+        if resetBox then resetBox:SetText(tostring(preset.resetTimer or addon.DEFAULT_RESET_TIMER)) end
         if UI.twistBox then
             -- Disable the checkbox when Windfury is the active air pick or
             -- isn't learned — twisting doesn't apply in those cases.
@@ -704,23 +775,6 @@ local MINI_W       = 220                                   -- enough for dropdow
 local MINI_H       = MINI_ICON + MINI_PAD * 2 + 30         -- icons + dropdown
 local MINI_LEFTPAD = (MINI_W - MINI_ROW_W) / 2             -- center the icons
 
-local function saveMiniPos()
-    local point, _, relPoint, x, y = miniFrame:GetPoint(1)
-    if not point then return end
-    TotemsDB.ui = TotemsDB.ui or {}
-    TotemsDB.ui.miniPos = { point = point, relPoint = relPoint, x = x, y = y }
-end
-
-local function applyMiniPos()
-    local pos = TotemsDB.ui and TotemsDB.ui.miniPos
-    miniFrame:ClearAllPoints()
-    if pos and pos.point then
-        miniFrame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
-    else
-        miniFrame:SetPoint("CENTER", UIParent, "CENTER", 0, -200)
-    end
-end
-
 -- Floating Windfury refresh indicator: shown when twist is applicable AND
 -- >= WF_REFRESH_THRESHOLD seconds elapsed since the last WF cast, OR when
 -- the main config is open (for positioning). Pulses on warning, solid
@@ -728,23 +782,6 @@ end
 -- screen; lives in TotemsDB.ui.wfIconPos and obeys the existing lock.
 local WF_ICON_SIZE = 56
 local wfIconFrame
-
-local function saveWFIconPos()
-    local point, _, relPoint, x, y = wfIconFrame:GetPoint(1)
-    if not point then return end
-    TotemsDB.ui = TotemsDB.ui or {}
-    TotemsDB.ui.wfIconPos = { point = point, relPoint = relPoint, x = x, y = y }
-end
-
-local function applyWFIconPos()
-    local pos = TotemsDB.ui and TotemsDB.ui.wfIconPos
-    wfIconFrame:ClearAllPoints()
-    if pos and pos.point then
-        wfIconFrame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
-    else
-        wfIconFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 100)
-    end
-end
 
 function UI:InitMini()
     if miniFrame then return end
@@ -760,7 +797,7 @@ function UI:InitMini()
     end)
     miniFrame:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
-        saveMiniPos()
+        savePos(self, "miniPos")
     end)
     miniFrame:SetClampedToScreen(true)
     miniFrame:SetScript("OnMouseUp", function(_, button)
@@ -786,13 +823,13 @@ function UI:InitMini()
     end)
     wfIconFrame:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
-        saveWFIconPos()
+        savePos(self, "wfIconPos")
     end)
     wfIconFrame:SetClampedToScreen(true)
     wfIconFrame.icon = wfIconFrame:CreateTexture(nil, "ARTWORK")
     wfIconFrame.icon:SetAllPoints(wfIconFrame)
     wfIconFrame:Hide()
-    applyWFIconPos()
+    applyPos(wfIconFrame, "wfIconPos", "CENTER", 0, 100)
     UI.wfIconFrame = wfIconFrame
 
     -- Hover-revealed chrome: gear (top-left), close (top-right), lock
@@ -822,7 +859,6 @@ function UI:InitMini()
     closeBtn:SetAlpha(0)
     closeBtn:SetScript("OnClick", function()
         miniFrame:Hide()
-        TotemsDB.ui = TotemsDB.ui or {}
         TotemsDB.ui.miniShown = false
     end)
     table.insert(chrome, closeBtn)
@@ -851,9 +887,11 @@ function UI:InitMini()
     twistResetBtn:SetNormalTexture("Interface\\Buttons\\UI-RefreshButton")
     twistResetBtn:SetAlpha(0)
     twistResetBtn:RegisterForClicks("AnyDown")
-    if addon.castBtn then
-        twistResetBtn:SetFrameRef("castBtn", addon.castBtn)
-    end
+    -- InitMini is called after createSecureButton in the PLAYER_LOGIN flow,
+    -- so addon.castBtn is always set here. Letting SetFrameRef error loudly
+    -- on a nil (instead of silently skipping) surfaces any future init-order
+    -- regression immediately rather than as a silent broken reset button.
+    twistResetBtn:SetFrameRef("castBtn", addon.castBtn)
     twistResetBtn:SetAttribute("_onclick", addon.RESET_TWIST_SNIPPET)
     -- Clear the WF warning counter too (insecure post-click hook, runs after
     -- the secure attribute mutation). Keeps the red border in sync with the
@@ -905,24 +943,14 @@ function UI:InitMini()
     -- +1,+1). We check parent + all chrome buttons.
     miniFrame:SetScript("OnUpdate", function(self, elapsed)
         if self.warningActive and wfIconFrame:IsShown() then
-            wfIconFrame:SetAlpha(0.5 + 0.5 * math.abs(math.sin(GetTime() * 5)))
+            wfIconFrame:SetAlpha(WF_PULSE_BASE + WF_PULSE_AMPLITUDE * math.abs(math.sin(GetTime() * WF_PULSE_HZ)))
         end
 
         self.chromeAccum = (self.chromeAccum or 0) + elapsed
-        if self.chromeAccum < 0.1 then return end
+        if self.chromeAccum < UPDATE_THROTTLE then return end
         self.chromeAccum = 0
 
-        local over = self:IsMouseOver()
-        if not over then
-            for _, c in ipairs(chrome) do
-                if c:IsMouseOver() then over = true; break end
-            end
-        end
-        if over ~= self.chromeHovered then
-            self.chromeHovered = over
-            local a = over and 1 or 0
-            for _, c in ipairs(chrome) do c:SetAlpha(a) end
-        end
+        updateChromeHover(self, chrome)
 
         -- Totem timers: read the 4 active totem slots from the Blizzard
         -- API (`GetTotemInfo`) and match each active totem back to our
@@ -1020,7 +1048,7 @@ function UI:InitMini()
         end)
         slot:SetScript("OnDragStart", function(self)
             UI.draggingMiniSlot = self.slotIndex
-            self:SetAlpha(0.4)
+            self:SetAlpha(SLOT_DRAG_ALPHA)
         end)
         slot:SetScript("OnDragStop", function(self)
             self:SetAlpha(1)
@@ -1054,11 +1082,11 @@ function UI:InitMini()
     UI.miniPresetMenu = CreateFrame("Frame", "TotemsMiniPresetMenu", UIParent, "UIDropDownMenuTemplate")
     miniDropdown = makeFlatDropdown(miniFrame, MINI_W - 110, 22, function(self)
         UIDropDownMenu_Initialize(UI.miniPresetMenu, dropdownInit, "MENU")
-        ToggleDropDownMenu(1, nil, UI.miniPresetMenu, self, 0, 0)
+        openDropdown(1, nil, UI.miniPresetMenu, self, 0, 0)
     end)
     miniDropdown:SetPoint("BOTTOM", miniFrame, "BOTTOM", 0, 6)
 
-    applyMiniPos()
+    applyPos(miniFrame, "miniPos", "CENTER", 0, -200)
     if TotemsDB.ui and TotemsDB.ui.miniShown == false then
         miniFrame:Hide()
     else
@@ -1084,7 +1112,7 @@ function UI:RefreshMini()
             -- show a faded element-default icon so the slot reads as
             -- "empty — element X" rather than a black square.
             slot.icon:SetTexture(addon.ELEMENT_ICON[element])
-            slot.icon:SetAlpha(0.35)
+            slot.icon:SetAlpha(EMPTY_SLOT_ALPHA)
         end
         slot.icon:Show()
         if i == nextSlot then
@@ -1141,7 +1169,7 @@ function UI:ShowMiniSlotMenu(slotIndex, anchor)
         end
     end, "MENU")
 
-    ToggleDropDownMenu(1, nil, UI.miniSlotMenuFrame, anchor, 0, 0)
+    openDropdown(1, nil, UI.miniSlotMenuFrame, anchor, 0, 0)
 end
 
 -- Share the active preset's sequence in chat so other shamans in the group
@@ -1194,7 +1222,6 @@ end
 
 function UI:ToggleMini()
     if not miniFrame then self:InitMini() end
-    TotemsDB.ui = TotemsDB.ui or {}
     if miniFrame:IsShown() then
         miniFrame:Hide()
         TotemsDB.ui.miniShown = false

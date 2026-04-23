@@ -28,7 +28,9 @@ A WoW TBC Classic Anniversary shaman addon that replaces static
 │   └── Tests.lua         # in-game test harness (`/totems test`)
 └── docs/
     ├── project/          # backlog + changelog + timesheet (house rules)
-    └── user-guide/       # business rules (source of truth)
+    └── user-guide/       # sources of truth
+        ├── business-rules.md       # WHAT the addon does (BR-* IDs)
+        └── engineering-standards.md # HOW the code is written (NFR-* IDs)
 ```
 
 ## Testing
@@ -48,6 +50,11 @@ A WoW TBC Classic Anniversary shaman addon that replaces static
 - `/totems` opens the config window.
 - Pressing the bound key casts the next totem in the active preset's
   sequence (in-combat too — macrotext is always valid).
+- The change does not violate any **MUST** rule in
+  `docs/user-guide/engineering-standards.md` (NFR-*). Any
+  deviation from a **SHOULD** rule is justified in the changelog
+  entry.
+- `business-rules.md` is updated if the change alters a BR-*.
 - Changelog entry added the same day the feature ships.
 - Timesheet row updated with duration + features shipped.
 - Backlog item moved to Done if it was tracked there.

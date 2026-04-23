@@ -3,6 +3,78 @@
 Entries are newest-first. One entry per commit/push once git is
 introduced. Format: date + scope + one-paragraph summary.
 
+## 2026-04-23 — refactor wave (post-NFR creation): 8 items against the new spec
+
+Scope: first refactor pass driven by `engineering-standards.md`. An
+audit agent produced ~20 findings; 4 turned out to be false
+alarms on verification, the others align to one or more NFRs.
+
+- **NFR-SEC-5 — twistResetBtn guard removed.** The defensive
+  `if addon.castBtn then` around `SetFrameRef("castBtn", addon.castBtn)`
+  silently skipped FrameRef setup if the init order ever broke.
+  `InitMini` runs after `createSecureButton` in the PLAYER_LOGIN
+  flow, so the ref is always present — let a future regression
+  error loudly instead of silently producing a dead reset button.
+- **NFR-MAINT-5 — 3 position save/restore helper pairs → 1
+  parameterized pair.** `savePos(f, dbKey)` /
+  `applyPos(f, dbKey, defPoint, defX, defY)` replaces
+  `savePosition/applyPosition`, `saveMiniPos/applyMiniPos`,
+  `saveWFIconPos/applyWFIconPos` (6 helpers → 2, ~60 lines → 30).
+- **NFR-LOCALE-3 — full locale key coverage test.** The old
+  French/German spot-check (7 keys) missed typos in the other 33
+  keys. Extracted `REQUIRED_LOCALE_KEYS` (40 keys) into a shared
+  local + helper `missingKeysIn`; 3 tests now iterate every key
+  in EN / FR / DE independently and name the missing key on
+  failure. Overall assert count dropped 105 → 93 (fewer
+  assertions, more coverage).
+- **NFR-MAINT-5 — chrome hover helper.** The main and mini
+  panel `OnUpdate` handlers both inlined the same 10-line
+  "IsMouseOver + fade chrome alpha" pattern. Extracted to
+  `updateChromeHover(frame, chrome)`; each caller keeps its own
+  throttle loop (they have different per-frame / throttled work
+  around the chrome bit).
+- **NFR-DATA-2 — defensive re-inits removed.** `InitDB` is the
+  single source of truth for `TotemsDB.ui`'s schema; the 4
+  stray `TotemsDB.ui = TotemsDB.ui or {}` guards in `savePos`,
+  `UI:SetLocked`, the mini close button, and `UI:ToggleMini`
+  suggested (incorrectly) that `TotemsDB.ui` could be nil at
+  those points. Removed.
+- **NFR-MAINT-6 — magic numbers promoted to named constants.**
+  Core: `DEFAULT_RESET_TIMER = 10` (4 call sites, also consumed
+  from UI via `addon.`), `SPELLS_CHANGED_DEBOUNCE = 0.3`,
+  `RESPEC_SCAN_DELAY = 2`, `OFFSCREEN_OFFSET = 9999` (2 call
+  sites for off-screen secure buttons). UI: `UPDATE_THROTTLE = 0.1`,
+  `WF_PULSE_HZ = 5` + `WF_PULSE_BASE = 0.5` +
+  `WF_PULSE_AMPLITUDE = 0.5`, `EMPTY_SLOT_ALPHA = 0.35`,
+  `SLOT_DRAG_ALPHA = 0.4`. All UI constants hoisted to the top
+  of the file so they're declared before any function that
+  captures them as upvalues (the `0.1` in `UI:Init`'s OnUpdate
+  would have bound to a global otherwise).
+- **Bug fix — "Masqués" dropdown didn't toggle.** Each click of
+  the button ran `UIDropDownMenu_Initialize` again, which
+  resets the dropdown state, so `ToggleDropDownMenu` always
+  opened (never closed). Added a guard: if the dropdown is
+  already open AND owned by our menu, close instead of
+  re-initializing.
+- **Polish — click outside a Totems dropdown now closes it.**
+  TBC Classic's "MENU" dropdowns don't auto-close on outside
+  clicks (retail-only behavior). Added an invisible fullscreen
+  click-catcher (strata `HIGH`) shown whenever any Totems
+  dropdown opens and hidden on its `OnHide`. A single helper
+  `openDropdown(level, value, menuFrame, anchor, x, y)` replaces
+  the 4 direct `ToggleDropDownMenu` call sites (Masqués, main
+  preset, mini preset, mini slot picker).
+
+Audit findings rejected on verification: `ApplyKeybind` pending
+flag (already re-invoked in `PLAYER_REGEN_ENABLED`); "stale
+`lastWFCastTime` on preset switch" (the timer represents "time
+since last WF cast" regardless of preset, remains meaningful);
+preset-deletion-mid-combat (active always resets to `"Default"`
+before `ApplyMacrotext`, never nil); `GetTotemInfo` when mini
+hidden (OnUpdate doesn't fire on hidden frames).
+
+Tests: 93 passing, 0 failing.
+
 ## 2026-04-21 — dynamic sequence + twist (phase B + phase C)
 
 Scope: finish the cast plumbing rebuild — first a dynamic

@@ -129,6 +129,23 @@ addon.lastWFCastTime = 0     -- GetTime() of the last Windfury cast; 0 = never
 -- "refresh WF soon" before the totem's pulse window lapses.
 addon.WF_REFRESH_THRESHOLD = 10
 
+-- Default fallback when a preset's `resetTimer` is nil (new preset / legacy
+-- SavedVariables). Matches the `/castsequence reset=N` semantics.
+addon.DEFAULT_RESET_TIMER = 10
+
+-- Event-debounce windows (seconds). `SPELLS_CHANGED` fires in bursts
+-- at login / level-up / rank learn — coalesce. After a respec, the
+-- spellbook is transiently half-empty; the 2 s second-scan catches the
+-- settled state so we don't bake stale data into `addon.known`.
+local SPELLS_CHANGED_DEBOUNCE = 0.3
+local RESPEC_SCAN_DELAY       = 2
+
+-- Off-screen offset used to park invisible secure buttons outside the
+-- visible area while keeping them Shown (`Hide()` would drop protected
+-- actions). Applied as `-OFFSCREEN_OFFSET, OFFSCREEN_OFFSET` so the
+-- frame sits at the top-left corner of UIParent minus this distance.
+local OFFSCREEN_OFFSET = 9999
+
 local castBtn  -- SecureActionButton, created on PLAYER_LOGIN
 local resetBtn -- SecureHandlerClickTemplate, target of TOTEMS_RESET_TWIST binding
 
@@ -334,17 +351,17 @@ end
 
 function addon:BuildMacrotext(preset)
     if not preset then return "" end
-    return sequenceText(preset.resetTimer or 10, self:NormalSpells(preset))
+    return sequenceText(preset.resetTimer or addon.DEFAULT_RESET_TIMER, self:NormalSpells(preset))
 end
 
 function addon:BuildTwistFullMacrotext(preset)
     if not preset then return "" end
-    return sequenceText(preset.resetTimer or 10, self:TwistFullSpells(preset))
+    return sequenceText(preset.resetTimer or addon.DEFAULT_RESET_TIMER, self:TwistFullSpells(preset))
 end
 
 function addon:BuildTwistShortMacrotext(preset)
     if not preset then return "" end
-    return sequenceText(preset.resetTimer or 10, self:TwistShortSpells(preset))
+    return sequenceText(preset.resetTimer or addon.DEFAULT_RESET_TIMER, self:TwistShortSpells(preset))
 end
 
 function addon:ApplyMacrotext()
@@ -453,7 +470,7 @@ function addon:OnSpellCast(spellID)
     if self.UI and self.UI.RefreshMini then self.UI:RefreshMini() end
 
     -- Reset to step 1 if no subsequent cast lands within the reset window.
-    local timer = preset.resetTimer or 10
+    local timer = preset.resetTimer or addon.DEFAULT_RESET_TIMER
     C_Timer.After(timer + 0.1, function()
         if (GetTime() - self.lastCastTime) >= timer then
             self:ResetStep()
@@ -475,7 +492,7 @@ local function createSecureButton()
     local b = CreateFrame("Button", "TotemsCastButton", UIParent,
         "SecureActionButtonTemplate,SecureHandlerBaseTemplate")
     b:SetSize(32, 32)
-    b:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -9999, 9999)
+    b:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -OFFSCREEN_OFFSET, OFFSCREEN_OFFSET)
     b:EnableMouse(false)
     -- "AnyDown" alone: single fire per keypress AND secure dispatch works.
     -- "AnyUp" alone silently drops the protected action (OnClick fires but no
@@ -516,7 +533,7 @@ end
 local function createResetButton()
     local r = CreateFrame("Button", "TotemsResetTwistButton", UIParent, "SecureHandlerClickTemplate")
     r:SetSize(32, 32)
-    r:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -9999, 9999)
+    r:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -OFFSCREEN_OFFSET, OFFSCREEN_OFFSET)
     r:EnableMouse(false)
     r:RegisterForClicks("AnyDown")
     r:SetFrameRef("castBtn", castBtn)
@@ -560,7 +577,7 @@ local scanScheduled = false
 local function scheduleScan()
     if scanScheduled then return end
     scanScheduled = true
-    C_Timer.After(0.3, function()
+    C_Timer.After(SPELLS_CHANGED_DEBOUNCE, function()
         scanScheduled = false
         addon:ScanKnownTotems()
         addon:ApplyMacrotext()
@@ -576,7 +593,7 @@ local respecScanScheduled = false
 local function scheduleRespecScan()
     if respecScanScheduled then return end
     respecScanScheduled = true
-    C_Timer.After(2, function()
+    C_Timer.After(RESPEC_SCAN_DELAY, function()
         respecScanScheduled = false
         addon:ScanKnownTotems()
         addon:ApplyMacrotext()
