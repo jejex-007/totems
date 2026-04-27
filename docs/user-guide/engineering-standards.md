@@ -29,11 +29,24 @@ one flavor may be wrong on another.
 | Game flavor              | WoW Classic TBC (Burning Crusade)        |
 | Variant                  | Anniversary                              |
 | Patch                    | 2.5.5                                    |
-| TOC `## Interface:`      | `20505`                                  |
+| TOC `## Interface:`      | `20525`                                  |
 | Client build (at spec-time) | `66765` (Mar 31 2026)                 |
 | Install folder           | `World of Warcraft/_anniversary_/`       |
 | Verify in-game with      | `/dump (select(4, GetBuildInfo()))`      |
-| Context last verified on | `2026-04-23`                             |
+| Context last verified on | `2026-04-27`                             |
+
+Verification log:
+- **2026-04-23** — interface `20505`, build `66765`. Initial spec
+  baseline: NFR-SEC-3 (`AnyDown`), NFR-SEC-4 (postBody silent
+  drop), NFR-COMPAT-2 (`C_AddOns.DisableAddOn`) all empirically
+  verified.
+- **2026-04-27** — interface bumped to `20525` by Blizzard
+  (server-side hotfix; client build unchanged at `66765`).
+  Re-verified NFR-SEC-3 (R still casts), NFR-SEC-4 (twist full →
+  short transition still works), NFR-COMPAT-2 (warrior login
+  still shows the disabled-class message without Lua error).
+  No NFR wording changed; addon TOC bumped from `20505` to
+  `20525`, addon version `0.1.0` → `0.1.1`.
 
 **Scope of the NFRs:**
 - Rules under **`NFR-SEC-*`**, **`NFR-COMPAT-*`**, and parts of

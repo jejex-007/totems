@@ -3,6 +3,41 @@
 Entries are newest-first. One entry per commit/push once git is
 introduced. Format: date + scope + one-paragraph summary.
 
+## 2026-04-27 — release v0.1.1 (TOC bump 20505 → 20525)
+
+Scope: ship the post-`v0.1.0` work as a tagged patch release and
+re-verify the version-pinned NFRs against the current Blizzard
+client.
+
+- `Totems/Totems.toc` — `## Interface: 20505 → 20525`,
+  `## Version: 0.1.0 → 0.1.1`. Blizzard bumped the TOC interface
+  number with a server-side hotfix; the client binary build is
+  unchanged at `66765`.
+- `docs/user-guide/engineering-standards.md` — Section 0
+  "Context" updated: interface `20525`, "Context last verified
+  on: 2026-04-27". New "Verification log" sub-section records
+  per-date re-verifications of the version-pinned `NFR-SEC-*` /
+  `NFR-COMPAT-*` rules so future build bumps can append entries
+  without rewriting the rule wording.
+- Re-verified empirically (NFR-COMPAT-5 trigger):
+  NFR-SEC-3 (`RegisterForClicks("AnyDown")`),
+  NFR-SEC-4 (postBody silent-drop ⇒ preBody for state machine),
+  NFR-COMPAT-2 (`C_AddOns.DisableAddOn` fallback). All three
+  still hold on interface `20525`.
+
+Release contents (everything tagged at `v0.1.1`, comparing
+against `v0.1.0`):
+- NFR spec (`engineering-standards.md`) as second source of truth.
+- Refactor wave: position helpers consolidation, chrome hover
+  helper, `TotemsDB.ui` defensive re-inits removal, magic
+  numbers → named constants, full locale key coverage in EN/FR/DE
+  tests, `twistResetBtn` defensive guard removal.
+- Bug fixes: "Masqués" dropdown toggle, click-outside-to-close
+  for all 4 Totems dropdowns.
+- Twist badge on the mini panel (BR-TWIST-UI-4): WF icon, blue
+  halo on short phase, countdown overlay, halo lights up on the
+  last full-phase press.
+
 ## 2026-04-23 — twist badge + phase-aware halo + WF countdown
 
 Scope: a dedicated indicator on the mini panel for twist mode,

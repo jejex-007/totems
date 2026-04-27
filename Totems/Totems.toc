@@ -1,8 +1,8 @@
-## Interface: 20505
+## Interface: 20525
 ## Title: Totems
 ## Notes: Configurable totem castsequence with per-element picker and named presets.
 ## Author: KySeEtH
-## Version: 0.1.0
+## Version: 0.1.1
 ## SavedVariablesPerCharacter: TotemsDB
 
 Locales.lua
